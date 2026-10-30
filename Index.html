@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ledgerwatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column — portfolio total + allocation strip on top, add-wallet bar, then a ledger of wallets */
+:root {
+  --bg: #f3f4f7;
+  --surface: #ffffff;
+  --ink: #141826;
+  --muted: #5c6378;
+  --line: #dde0e8;
+  --accent: #b7791f;      /* brass */
+  --accent-ink: #ffffff;
+  --up: #1f8a5b;
+  --down: #c2412d;
+  --warn: #a86b00;
+  --chip: #eceef4;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f121b; --surface: #171b27; --ink: #e8eaf2; --muted: #9aa1b6; --line: #2a3040;
+    --accent: #e0a64a; --accent-ink: #1a1306; --up: #4cc38a; --down: #ef7a66; --warn: #e6b04f; --chip: #222839;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f121b; --surface: #171b27; --ink: #e8eaf2; --muted: #9aa1b6; --line: #2a3040;
+  --accent: #e0a64a; --accent-ink: #1a1306; --up: #4cc38a; --down: #ef7a66; --warn: #e6b04f; --chip: #222839;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { font-family: var(--f-display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.brand svg { width: 26px; height: 26px; }
+.tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 6px 12px; font-weight: 600; font-size: 13px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 12px; font-weight: 600; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn svg { width: 14px; height: 14px; }
+.spin svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Hero total */
+.total { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.total .value { font-family: var(--f-display); font-weight: 700; font-size: clamp(40px, 8vw, 64px); line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.total .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 14px; align-items: baseline; }
+.delta.up { color: var(--up); } .delta.down { color: var(--down); }
+
+.alloc { display: flex; flex-direction: column; gap: 10px; }
+.bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--chip); }
+.bar span { height: 100%; transition: width .4s; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend b { color: var(--ink); font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+
+/* Add form */
+form.add { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; grid-template-columns: 170px 1fr 170px auto; gap: 10px; }
+form.add label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); min-width: 0; }
+form.add input, form.add select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 10px; font-size: 14px; min-width: 0; width: 100%; }
+form.add input.mono { font-family: var(--f-mono); font-size: 13px; }
+form.add .go { align-self: end; }
+form.add .go .btn { padding: 10px 16px; font-size: 14px; }
+.formmsg { grid-column: 1 / -1; font-size: 13px; color: var(--down); margin: 0; }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* Ledger */
+.ledger { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lhead, .row { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr) 84px; gap: 12px; align-items: center; padding: 12px 16px; }
+.lhead { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); }
+.row + .row { border-top: 1px solid var(--line); }
+.r { text-align: right; }
+.who { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.coin { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-family: var(--f-mono); font-weight: 500; font-size: 11px; letter-spacing: -0.02em; }
+.who .txt { min-width: 0; display: flex; flex-direction: column; }
+.who .label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; background: var(--chip); color: var(--muted); border-radius: 4px; padding: 1px 5px; }
+.addr { font-family: var(--f-mono); font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; }
+.addr span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain { font-size: 12px; color: var(--muted); }
+.bal { font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 14px; overflow-wrap: anywhere; }
+.c-bal { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+.stable { font-weight: 600; color: var(--c); }
+.onnet { font-family: var(--f-body); font-size: 11px; color: var(--muted); background: var(--chip); border-radius: 4px; padding: 0 5px; }
+.warnline { font-size: 11px; color: var(--warn); max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root[data-theme="dark"] .stable { filter: brightness(1.35); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .stable { filter: brightness(1.35); } }
+.val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.sub { font-size: 12px; color: var(--muted); }
+.err { font-size: 12px; color: var(--down); }
+.acts { display: flex; gap: 2px; justify-content: flex-end; }
+.icon { border: 0; background: none; padding: 6px; border-radius: 6px; color: var(--muted); display: inline-grid; place-items: center; text-decoration: none; }
+.icon:hover { background: var(--chip); color: var(--ink); }
+.icon svg { width: 16px; height: 16px; }
+.icon.danger:hover { color: var(--down); }
+.confirm { display: flex; gap: 6px; justify-content: flex-end; }
+.confirm button { font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.confirm .yes { background: var(--down); border-color: var(--down); color: #fff; }
+.skeleton { display: inline-block; height: 12px; width: 80px; border-radius: 4px; background: linear-gradient(90deg, var(--chip), var(--line), var(--chip)); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+.empty b { color: var(--ink); display: block; font-family: var(--f-display); font-size: 18px; margin-bottom: 4px; }
+
+footer { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+
+
+/* Charts */
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel.wide { grid-column: 1 / -1; }
+.panel h2 { font-family: var(--f-display); font-weight: 700; font-size: 16px; margin: 0; letter-spacing: -0.01em; }
+.panel .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.panel .hint { font-size: 12px; color: var(--muted); }
+.cbox { position: relative; height: 240px; min-width: 0; }
+.cbox.tall { height: 260px; }
+.pempty { font-size: 13px; color: var(--muted); padding: 28px 8px; text-align: center; }
+.donutwrap { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: center; }
+.donutwrap .cbox { height: 180px; }
+.dleg { display: flex; flex-direction: column; gap: 6px; font-size: 13px; min-width: 0; }
+.dleg div { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+.dleg .pc { color: var(--muted); font-family: var(--f-mono); font-size: 12px; }
+.funnel { display: flex; flex-direction: column; gap: 4px; }
+.fstep { display: grid; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); gap: 12px; align-items: center; }
+.flabel { font-size: 13px; min-width: 0; }
+.flabel b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flabel span { color: var(--muted); font-size: 12px; font-family: var(--f-mono); }
+.ftrack { display: flex; justify-content: center; }
+.fshape { height: 34px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 600; font-family: var(--f-mono); transition: width .4s; min-width: 0; overflow: hidden; white-space: nowrap; }
+.tabs { display: inline-flex; gap: 2px; background: var(--chip); border-radius: 7px; padding: 2px; }
+.tabs button { border: 0; background: none; padding: 3px 9px; border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+@media (max-width: 760px) {
+  .charts { grid-template-columns: minmax(0, 1fr); }
+  .donutwrap { grid-template-columns: minmax(0, 1fr); }
+  .donutwrap .cbox { height: 200px; }
+}
+
+@media (max-width: 760px) {
+  form.add { grid-template-columns: 1fr 1fr; }
+  form.add .full { grid-column: 1 / -1; }
+  form.add .go { grid-column: 1 / -1; }
+  form.add .go .btn { width: 100%; justify-content: center; }
+  .lhead { display: none; }
+  .row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who acts" "bal val"; row-gap: 8px; }
+  .row .c-who { grid-area: who; } .row .c-bal { grid-area: bal; text-align: left; align-items: flex-start; } .row .c-val { grid-area: val; } .row .c-acts { grid-area: acts; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="19" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M3 12h26" stroke="currentColor" stroke-width="2.4"/><circle cx="23" cy="19" r="2.4" fill="var(--accent)"/></svg>
+      Ledgerwatch
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Currency">
+        <button type="button" id="cur-inr" data-cur="inr">₹ INR</button>
+        <button type="button" id="cur-usd" data-cur="usd">$ USD</button>
+      </div>
+      <button type="button" class="btn" id="refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Refresh</span></button>
+    </div>
+  </header>
+
+  <section class="total" aria-live="polite">
+    <div class="eyebrow">Total across all wallets</div>
+    <div class="value" id="total">—</div>
+    <div class="meta">
+      <span class="delta" id="delta"></span>
+      <span id="count"></span>
+      <span id="updated"></span>
+    </div>
+  </section>
+
+  <section class="alloc" id="alloc" hidden>
+    <div class="bar" id="bar"></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+
+  <section class="charts" id="charts" aria-label="Charts">
+    <div class="panel wide">
+      <div class="ph"><h2>Value funnel</h2>
+        <div class="tabs" role="group" aria-label="Funnel grouping">
+          <button type="button" id="fn-wallet" data-fn="wallet" aria-pressed="true">By wallet</button>
+          <button type="button" id="fn-coin" data-fn="coin" aria-pressed="false">By coin</button>
+        </div>
+      </div>
+      <div class="funnel" id="funnel"><div class="pempty">Waiting for balances…</div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><h2>Allocation</h2><span class="hint">Share of total value</span></div>
+      <div class="donutwrap"><div class="cbox"><canvas id="ch-donut" aria-label="Allocation by coin"></canvas></div><div class="dleg" id="dleg"></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><h2>Value by network</h2><span class="hint">Coins + stablecoins</span></div>
+      <div class="cbox"><canvas id="ch-net" aria-label="Value by network"></canvas></div>
+    </div>
+    <div class="panel wide">
+      <div class="ph"><h2>Portfolio history</h2><span class="hint" id="histhint">Recorded on this device each refresh</span></div>
+      <div class="cbox tall"><canvas id="ch-hist" aria-label="Portfolio value over time"></canvas></div>
+      <div class="pempty" id="histempty">Your history starts now. Keep the tracker open or come back later and this line fills in.</div>
+    </div>
+    <div class="panel wide">
+      <div class="ph"><h2>24h price change</h2><span class="hint">Coins you hold</span></div>
+      <div class="cbox"><canvas id="ch-chg" aria-label="24 hour price change by coin"></canvas></div>
+    </div>
+  </section>
+
+  <form class="add" id="addform" novalidate>
+    <label>Network
+      <select id="f-chain"></select>
+    </label>
+    <label class="full">Public address
+      <input id="f-addr" class="mono" autocomplete="off" spellcheck="false" placeholder="Paste a wallet address">
+    </label>
+    <label class="full">Name (optional)
+      <input id="f-label" autocomplete="off" placeholder="e.g. Cold storage">
+    </label>
+    <div class="go"><button class="btn primary" type="submit">Add wallet</button></div>
+    <p class="formmsg" id="formmsg" hidden></p>
+  </form>
+  <p class="note">Watch-only: add <b>public addresses</b> only. Never paste a seed phrase or private key here. Wallets are saved in this browser.</p>
+
+  <section class="ledger" aria-label="Wallets">
+    <div class="lhead"><div>Wallet</div><div class="r">Balance</div><div class="r">Value</div><div></div></div>
+    <div id="rows"></div>
+  </section>
+
+  <footer>
+    <span>30+ networks · Native coins + USDT/USDC · Balances from public blockchain nodes · Prices from CoinGecko · Auto-refresh every 2 min</span>
+    <span id="pricestatus"></span>
+  </footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(() => {
+  // ---------- Networks ----------
+  const EVM_RE = /^0x[a-fA-F0-9]{40}$/;
+  const TOKENS = {
+    USDT: { cg: "tether",   color: "#26a17b" },
+    USDC: { cg: "usd-coin", color: "#2775ca" },
+  };
+  // EVM token lists: { SYM: [[contract, decimals], ...] }  (several = native + bridged versions, summed)
+  const evm = (name, sym, cg, color, rpc, explorer, tokens = {}, extra = {}) =>
+    ({ name, sym, cg, color, re: EVM_RE, kind: "evm", rpc, explorer: a => explorer + a, tokens, group: "EVM networks", ...extra });
+  const CHAINS = {
+    // --- Popular ---
+    btc:  { name: "Bitcoin", sym: "BTC", cg: "bitcoin", color: "#e8891a", kind: "btc", group: "Popular", tokens: {},
+            re: /^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$/i, explorer: a => "https://mempool.space/address/" + a },
+    eth:  evm("Ethereum", "ETH", "ethereum", "#5b6bd6", "https://ethereum-rpc.publicnode.com", "https://etherscan.io/address/",
+            { USDT: [["0xdAC17F958D2ee523a2206206994597C13D831ec7", 6]], USDC: [["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", 6]] }, { group: "Popular" }),
+    sol:  { name: "Solana", sym: "SOL", cg: "solana", color: "#1a9e8f", kind: "sol", group: "Popular", rpc: "https://solana-rpc.publicnode.com",
+            re: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/, explorer: a => "https://solscan.io/account/" + a,
+            tokens: { USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } },
+    trx:  { name: "Tron", sym: "TRX", cg: "tron", color: "#d23a3a", kind: "trx", group: "Popular",
+            re: /^T[1-9A-HJ-NP-Za-km-z]{33}$/, explorer: a => "https://tronscan.org/#/address/" + a,
+            tokens: { USDT: [["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", 6]], USDC: [["TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8", 6]] } },
+    bsc:  evm("BNB Chain", "BNB", "binancecoin", "#c99a0a", "https://bsc-rpc.publicnode.com", "https://bscscan.com/address/",
+            { USDT: [["0x55d398326f99059fF775485246999027B3197955", 18]], USDC: [["0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18]] }, { group: "Popular" }),
+
+    // --- EVM networks (same 0x address works on all of them) ---
+    arb:   evm("Arbitrum", "ETH", "ethereum", "#2a7fbf", "https://arbitrum-one-rpc.publicnode.com", "https://arbiscan.io/address/",
+             { USDT: [["0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", 6]], USDC: [["0xaf88d065e77c8cC2239327C5EDb3A432268e5831", 6], ["0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8", 6]] }),
+    base:  evm("Base", "ETH", "ethereum", "#2459e0", "https://base-rpc.publicnode.com", "https://basescan.org/address/",
+             { USDT: [["0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", 6]], USDC: [["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6]] }),
+    op:    evm("Optimism", "ETH", "ethereum", "#e0313f", "https://optimism-rpc.publicnode.com", "https://optimistic.etherscan.io/address/",
+             { USDT: [["0x94b008aA00579c1307B0EF2c499aD98a8ce58e58", 6]], USDC: [["0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", 6], ["0x7F5c764cBc14f9669B88837ca1490cCa17c31607", 6]] }),
+    pol:   evm("Polygon", "POL", "polygon-ecosystem-token", "#7b3fe4", "https://polygon-bor-rpc.publicnode.com", "https://polygonscan.com/address/",
+             { USDT: [["0xc2132D05D31c914a87C6611C10748AEb04B58e8F", 6]], USDC: [["0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6], ["0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", 6]] }),
+    avax:  evm("Avalanche", "AVAX", "avalanche-2", "#d93d3d", "https://avalanche-c-chain-rpc.publicnode.com", "https://snowtrace.io/address/",
+             { USDT: [["0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7", 6]], USDC: [["0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", 6]] }),
+    hype:  evm("HyperEVM", "HYPE", "hyperliquid", "#2fa58f", "https://rpc.hyperliquid.xyz/evm", "https://hyperevmscan.io/address/",
+             { USDT: [["0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb", 6]], USDC: [["0xb88339CB7199b77E23DB6E890353E22632Ba630f", 6]] }),
+    monad: evm("Monad", "MON", "monad", "#6e54ff", "https://rpc.monad.xyz", "https://monadscan.com/address/",
+             { USDT: [["0xe7cd86e13AC4309349F30B3435a9d337750fC82D", 6]], USDC: [["0x754704Bc059F8C67012fEd69BC8A327a5aafb603", 6]] }),
+    plasma:evm("Plasma", "XPL", "plasma", "#1f9e74", "https://rpc.plasma.to", "https://plasmascan.to/address/",
+             { USDT: [["0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb", 6]], USDC: [["0x2d661C89D812261039AF9764eceaAee884f5F67F", 6]] }),
+    uni:   evm("Unichain", "ETH", "ethereum", "#e5359b", "https://mainnet.unichain.org", "https://uniscan.xyz/address/",
+             { USDT: [["0x9151434b16b9763660705744891fA906F660EcC5", 6]], USDC: [["0x078D782b760474a361dDA0AF3839290b0EF57AD6", 6]] }),
+    sonic: evm("Sonic", "S", "sonic-3", "#3d6fd6", "https://rpc.soniclabs.com", "https://sonicscan.org/address/",
+             { USDC: [["0x29219dd400f2Bf60E5a23d13Be72B486D4038894", 6]] }),
+    bera:  evm("Berachain", "BERA", "berachain-bera", "#8a5a2b", "https://rpc.berachain.com", "https://berascan.com/address/",
+             { USDT: [["0x779Ded0c9e1022225f8E0630b35a9b54bE713736", 6]] }),
+    linea: evm("Linea", "ETH", "ethereum", "#3a3f4b", "https://linea-rpc.publicnode.com", "https://lineascan.build/address/",
+             { USDT: [["0xA219439258ca9da29E9Cc4cE5596924745e12B93", 6]], USDC: [["0x176211869cA2b568f2A7D4EE941E073a821EE1ff", 6]] }),
+    zksync:evm("zkSync Era", "ETH", "ethereum", "#4e529a", "https://mainnet.era.zksync.io", "https://explorer.zksync.io/address/",
+             { USDT: [["0x493257fD37EDB34451f62EDf8D2a0C418852bA4C", 6]], USDC: [["0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4", 6]] }),
+    scroll:evm("Scroll", "ETH", "ethereum", "#c98a4a", "https://scroll-rpc.publicnode.com", "https://scrollscan.com/address/",
+             { USDT: [["0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df", 6]], USDC: [["0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4", 6]] }),
+    ink:   evm("Ink", "ETH", "ethereum", "#7132f5", "https://rpc-gel.inkonchain.com", "https://explorer.inkonchain.com/address/",
+             { USDC: [["0x2D270e6886d130D724215A266106e6832161EAEd", 6]] }),
+    world: evm("World Chain", "ETH", "ethereum", "#2b2b2b", "https://worldchain-mainnet.g.alchemy.com/public", "https://worldscan.org/address/",
+             { USDC: [["0x79A02482A880bCe3F13E09da970dC34dB4cD24D1", 6]] }),
+    sei:   evm("Sei", "SEI", "sei-network", "#9b1c2e", "https://evm-rpc.sei-apis.com", "https://seiscan.io/address/",
+             { USDC: [["0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", 6]] }),
+    mantle:evm("Mantle", "MNT", "mantle", "#1c6e64", "https://mantle-rpc.publicnode.com", "https://mantlescan.xyz/address/",
+             { USDT: [["0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE", 6]], USDC: [["0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9", 6]] }),
+    blast: evm("Blast", "ETH", "ethereum", "#a39b0c", "https://blast-rpc.publicnode.com", "https://blastscan.io/address/"),
+    celo:  evm("Celo", "CELO", "celo", "#b8a312", "https://forno.celo.org", "https://celoscan.io/address/",
+             { USDT: [["0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e", 6]], USDC: [["0xcebA9300f2b948710d2653dD7B07f33A8B32118C", 6]] }),
+    gnosis:evm("Gnosis", "xDAI", "xdai", "#3e6957", "https://gnosis-rpc.publicnode.com", "https://gnosisscan.io/address/",
+             { USDT: [["0x4ECaBa5870353805a9F068101A40E0f32ed605C6", 6]], USDC: [["0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83", 6]] }),
+    cronos:evm("Cronos", "CRO", "crypto-com-chain", "#1d3a6e", "https://evm.cronos.org", "https://cronoscan.com/address/",
+             { USDC: [["0x3D7F2C478aAfdB65542BCB44bCeeC05849999d2D", 6]] }),
+    opbnb: evm("opBNB", "BNB", "binancecoin", "#b8930b", "https://opbnb-rpc.publicnode.com", "https://opbnbscan.com/address/"),
+    xlayer:evm("X Layer", "OKB", "okb", "#3b3b3b", "https://rpc.xlayer.tech", "https://www.oklink.com/xlayer/address/",
+             { USDC: [["0xB6CEceAB302E2E4948951eE7843FC24E92933061", 6]] }),
+
+    // --- Other networks ---
+    ton:   { name: "TON", sym: "TON", cg: "the-open-network", color: "#1f8fd6", kind: "ton", group: "Other networks", tokens: { USDT: true },
+             re: /^((EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{46}|-?\d:[a-fA-F0-9]{64})$/, explorer: a => "https://tonviewer.com/" + a },
+    xrp:   { name: "XRP Ledger", sym: "XRP", cg: "ripple", color: "#2d3340", kind: "xrp", group: "Other networks", tokens: { USDC: true },
+             re: /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/, explorer: a => "https://livenet.xrpl.org/accounts/" + a },
+    sui:   { name: "Sui", sym: "SUI", cg: "sui", color: "#3d8fe0", kind: "sui", group: "Other networks", tokens: { USDC: true },
+             re: /^0x[a-fA-F0-9]{64}$/, explorer: a => "https://suivision.xyz/account/" + a },
+    apt:   { name: "Aptos", sym: "APT", cg: "aptos", color: "#2f2f2f", kind: "apt", group: "Other networks", tokens: { USDT: true, USDC: true },
+             re: /^0x[a-fA-F0-9]{1,64}$/, explorer: a => "https://explorer.aptoslabs.com/account/" + a + "?network=mainnet" },
+    ada:   { name: "Cardano", sym: "ADA", cg: "cardano", color: "#2a5bd7", kind: "ada", group: "Other networks", tokens: {},
+             re: /^addr1[0-9a-z]{50,110}$/, explorer: a => "https://cardanoscan.io/address/" + a },
+    near:  { name: "NEAR", sym: "NEAR", cg: "near", color: "#2a2a2a", kind: "near", group: "Other networks", tokens: { USDT: true, USDC: true },
+             re: /^([a-z0-9_-]+\.)*[a-z0-9_-]+\.(near|tg)$|^[a-f0-9]{64}$/, explorer: a => "https://nearblocks.io/address/" + a },
+    xlm:   { name: "Stellar", sym: "XLM", cg: "stellar", color: "#3a3a3a", kind: "xlm", group: "Other networks", tokens: { USDC: true },
+             re: /^G[A-Z2-7]{55}$/, explorer: a => "https://stellar.expert/explorer/public/account/" + a },
+    atom:  { name: "Cosmos Hub", sym: "ATOM", cg: "cosmos", color: "#5064a8", kind: "atom", group: "Other networks", tokens: {},
+             re: /^cosmos1[02-9ac-hj-np-z]{38,58}$/, explorer: a => "https://www.mintscan.io/cosmos/address/" + a },
+    ltc:   { name: "Litecoin", sym: "LTC", cg: "litecoin", color: "#5a7bb5", kind: "ltc", group: "Other networks", tokens: {},
+             re: /^(ltc1[02-9ac-hj-np-z]{11,87}|[LM][1-9A-HJ-NP-Za-km-z]{26,33})$/, explorer: a => "https://litecoinspace.org/address/" + a },
+    doge:  { name: "Dogecoin", sym: "DOGE", cg: "dogecoin", color: "#b89a3a", kind: "doge", group: "Other networks", tokens: {},
+             re: /^D[1-9A-HJ-NP-Za-km-z]{25,34}$/, explorer: a => "https://blockchair.com/dogecoin/address/" + a },
+  };
+  // Pseudo-network: scan one 0x address on every EVM network at once
+  const EVM_ALL = { name: "All EVM networks", sym: "EVM", color: "#4b5468", re: EVM_RE, explorer: a => "https://debank.com/profile/" + a };
+  const EVM_KEYS = Object.keys(CHAINS).filter(k => CHAINS[k].kind === "evm");
+  const meta = w => w.chain === "evmall" ? EVM_ALL : CHAINS[w.chain];
+
+  const EXAMPLES = [
+    { id: "ex1", chain: "btc", addr: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", label: "Bitcoin genesis address", example: true },
+    { id: "ex2", chain: "evmall", addr: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", label: "vitalik.eth", example: true },
+  ];
+
+  // ---------- State ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+  let wallets = store.get("lw.wallets", null) ?? EXAMPLES.slice();
+  let currency = store.get("lw.cur", "inr");
+  let prices = {};               // cg id -> {usd, inr, usd_24h_change}
+  const balances = {};           // wallet id -> {lines, warn, error, loading}
+  let confirmId = null;
+  let lastUpdated = null;
+  let busy = false;
+
+  // ---------- Fetchers ----------
+  async function fetchJSON(url, opts = {}, ms = 15000) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms);
+    try {
+      const r = await fetch(url, { ...opts, signal: ctl.signal });
+      if (r.status === 404 && opts.notFoundOk) return null;
+      if (r.status === 429) throw new Error("Rate limited, try again in a minute");
+      if (!r.ok) throw new Error("Server returned " + r.status);
+      return await r.json();
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error("Timed out");
+      if (e instanceof TypeError) throw new Error("Couldn't reach the network");
+      throw e;
+    } finally { clearTimeout(t); }
+  }
+  const post = (url, body, extra = {}) => fetchJSON(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...extra });
+  async function rpc(url, method, params) {
+    const j = await post(url, { jsonrpc: "2.0", id: 1, method, params });
+    if (j.error) throw new Error(j.error.message || "RPC error");
+    return j.result;
+  }
+  // Several EVM calls in one request; falls back to one-by-one if the node refuses batches
+  async function rpcBatch(url, calls) {
+    try {
+      const j = await post(url, calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c[0], params: c[1] })));
+      if (!Array.isArray(j)) throw new Error("no batch");
+      const out = [];
+      for (const r of j) { if (r.error) throw new Error(r.error.message || "RPC error"); out[r.id] = r.result; }
+      return out;
+    } catch (e) {
+      if (/Timed out|reach the network/.test(e.message)) throw e;
+      return Promise.all(calls.map(c => rpc(url, c[0], c[1])));
+    }
+  }
+  const units = (raw, dec) => { // integer amount (hex or decimal string) -> Number
+    const big = BigInt(raw || 0), base = 10n ** BigInt(dec);
+    return Number(big / base) + Number(big % base) / Number(base);
+  };
+  const native = (key, amount) => { const c = CHAINS[key]; return { sym: c.sym, amount, cg: c.cg, color: c.color, native: true, chain: key }; };
+  const token = (key, sym, amount) => ({ sym, amount, cg: TOKENS[sym].cg, color: TOKENS[sym].color, chain: key });
+
+  async function fetchEvm(key, addr) {
+    const c = CHAINS[key];
+    const pad = "000000000000000000000000" + addr.slice(2).toLowerCase();
+    const calls = [["eth_getBalance", [addr, "latest"]]], map = [];
+    for (const [sym, list] of Object.entries(c.tokens)) for (const [to, dec] of list) {
+      calls.push(["eth_call", [{ to, data: "0x70a08231" + pad }, "latest"]]); map.push([sym, dec]);
+    }
+    const res = await rpcBatch(c.rpc, calls);
+    const lines = [native(key, units(res[0], 18))];
+    const sums = {};
+    map.forEach(([sym, dec], i) => { const h = res[i + 1]; if (h && h !== "0x") sums[sym] = (sums[sym] || 0) + units(h, dec); });
+    for (const [sym, v] of Object.entries(sums)) lines.push(token(key, sym, v));
+    return lines;
+  }
+
+  const FETCH = {
+    async btc(a) {
+      const j = await fetchJSON("https://blockstream.info/api/address/" + a);
+      const s = j.chain_stats, m = j.mempool_stats;
+      return [native("btc", (s.funded_txo_sum - s.spent_txo_sum + m.funded_txo_sum - m.spent_txo_sum) / 1e8)];
+    },
+    async ltc(a) {
+      const j = await fetchJSON("https://litecoinspace.org/api/address/" + a);
+      const s = j.chain_stats, m = j.mempool_stats;
+      return [native("ltc", (s.funded_txo_sum - s.spent_txo_sum + m.funded_txo_sum - m.spent_txo_sum) / 1e8)];
+    },
+    async doge(a) {
+      const j = await fetchJSON("https://api.blockcypher.com/v1/doge/main/addrs/" + a + "/balance");
+      return [native("doge", (j.final_balance || 0) / 1e8)];
+    },
+    async sol(a) {
+      const c = CHAINS.sol;
+      const [bal, ...toks] = await Promise.all([
+        rpc(c.rpc, "getBalance", [a]),
+        ...Object.values(c.tokens).map(mint => rpc(c.rpc, "getTokenAccountsByOwner", [a, { mint }, { encoding: "jsonParsed" }])),
+      ]);
+      const lines = [native("sol", bal.value / 1e9)];
+      Object.keys(c.tokens).forEach((sym, i) => lines.push(token("sol", sym, (toks[i].value || []).reduce((s, x) => s + (x.account.data.parsed.info.tokenAmount.uiAmount || 0), 0))));
+      return lines;
+    },
+    async trx(a) {
+      const j = await fetchJSON("https://api.trongrid.io/v1/accounts/" + a);
+      const acct = j.data && j.data[0];
+      const lines = [native("trx", acct ? (acct.balance || 0) / 1e6 : 0)];
+      const trc20 = (acct && acct.trc20) || [];
+      for (const [sym, [[contract, dec]]] of Object.entries(CHAINS.trx.tokens)) {
+        let sum = 0;
+        for (const e of trc20) if (e[contract] != null) sum += units(e[contract], dec);
+        lines.push(token("trx", sym, sum));
+      }
+      return lines;
+    },
+    async ton(a) {
+      const [acct, jet] = await Promise.all([
+        fetchJSON("https://tonapi.io/v2/accounts/" + encodeURIComponent(a)),
+        fetchJSON("https://tonapi.io/v2/accounts/" + encodeURIComponent(a) + "/jettons").catch(() => ({ balances: [] })),
+      ]);
+      const lines = [native("ton", (acct.balance || 0) / 1e9)];
+      const usdt = (jet.balances || []).find(b => b.jetton && /^USD[₮T]$/.test(b.jetton.symbol || "") && b.jetton.verification === "whitelist");
+      lines.push(token("ton", "USDT", usdt ? units(usdt.balance, usdt.jetton.decimals ?? 6) : 0));
+      return lines;
+    },
+    async xrp(a) {
+      const url = "https://xrplcluster.com/";
+      const [info, linesRes] = await Promise.all([
+        post(url, { method: "account_info", params: [{ account: a, ledger_index: "validated" }] }),
+        post(url, { method: "account_lines", params: [{ account: a, ledger_index: "validated" }] }),
+      ]);
+      if (info.result && info.result.error === "actNotFound") return [native("xrp", 0)];
+      if (info.result && info.result.error) throw new Error(info.result.error_message || info.result.error);
+      const lines = [native("xrp", Number(info.result.account_data.Balance) / 1e6)];
+      const usdc = ((linesRes.result && linesRes.result.lines) || []).find(l => l.account === "rGm7WCVp9gb4jZHWTEtGUr4dd74z2XuWhE" && (l.currency === "USDC" || l.currency.startsWith("55534443")));
+      lines.push(token("xrp", "USDC", usdc ? Number(usdc.balance) : 0));
+      return lines;
+    },
+    async sui(a) {
+      const res = await rpc("https://fullnode.mainnet.sui.io", "suix_getAllBalances", [a]);
+      const find = t => (res.find(b => b.coinType === t) || {}).totalBalance || "0";
+      return [native("sui", units(find("0x2::sui::SUI"), 9)),
+              token("sui", "USDC", units(find("0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"), 6))];
+    },
+    async apt(a) {
+      const base = "https://api.mainnet.aptoslabs.com/v1/accounts/" + a + "/balance/";
+      const get = asset => fetchJSON(base + asset, { notFoundOk: true }).then(v => v ?? 0);
+      const [apt, usdt, usdc] = await Promise.all([
+        get("0x1::aptos_coin::AptosCoin"),
+        get("0x357b0b74bc833e95a115ad22604854d6b0fca151cecd94111770e5d6ffc9dc2b").catch(() => 0),
+        get("0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b").catch(() => 0),
+      ]);
+      return [native("apt", units(String(apt), 8)), token("apt", "USDT", units(String(usdt), 6)), token("apt", "USDC", units(String(usdc), 6))];
+    },
+    async ada(a) {
+      const j = await post("https://api.koios.rest/api/v1/address_info", { _addresses: [a] });
+      return [native("ada", j && j[0] ? Number(j[0].balance) / 1e6 : 0)];
+    },
+    async near(a) {
+      const url = "https://free.rpc.fastnear.com";
+      const view = await post(url, { jsonrpc: "2.0", id: 1, method: "query", params: { request_type: "view_account", finality: "final", account_id: a } });
+      if (view.error && !/UNKNOWN_ACCOUNT|does not exist/i.test(JSON.stringify(view.error))) throw new Error("NEAR: " + (view.error.message || "error"));
+      const lines = [native("near", view.result ? units(view.result.amount, 24) : 0)];
+      const ft = async contract => {
+        const r = await post(url, { jsonrpc: "2.0", id: 1, method: "query", params: { request_type: "call_function", finality: "final", account_id: contract, method_name: "ft_balance_of", args_base64: btoa(JSON.stringify({ account_id: a })) } });
+        if (!r.result || !r.result.result) return 0;
+        return units(JSON.parse(String.fromCharCode(...r.result.result)), 6);
+      };
+      const [usdt, usdc] = await Promise.all([
+        ft("usdt.tether-token.near").catch(() => 0),
+        ft("17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1").catch(() => 0),
+      ]);
+      lines.push(token("near", "USDT", usdt), token("near", "USDC", usdc));
+      return lines;
+    },
+    async xlm(a) {
+      const j = await fetchJSON("https://horizon.stellar.org/accounts/" + a, { notFoundOk: true });
+      if (!j) return [native("xlm", 0)];
+      const nat = j.balances.find(b => b.asset_type === "native");
+      const usdc = j.balances.find(b => b.asset_code === "USDC" && b.asset_issuer === "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN");
+      return [native("xlm", nat ? Number(nat.balance) : 0), token("xlm", "USDC", usdc ? Number(usdc.balance) : 0)];
+    },
+    async atom(a) {
+      const j = await fetchJSON("https://cosmos-rest.publicnode.com/cosmos/bank/v1beta1/balances/" + a);
+      const u = (j.balances || []).find(b => b.denom === "uatom");
+      return [native("atom", u ? Number(u.amount) / 1e6 : 0)];
+    },
+  };
+
+  // Returns { lines, warn } for any wallet
+  async function fetchWallet(w) {
+    if (w.chain === "evmall") {
+      const results = await Promise.allSettled(EVM_KEYS.map(k => fetchEvm(k, w.addr)));
+      const lines = [], failed = [];
+      results.forEach((r, i) => r.status === "fulfilled" ? lines.push(...r.value) : failed.push(CHAINS[EVM_KEYS[i]].name));
+      if (failed.length === EVM_KEYS.length) throw new Error("Couldn't reach any EVM network");
+      return { lines, warn: failed.length ? `Couldn't check: ${failed.join(", ")}` : null };
+    }
+    const c = CHAINS[w.chain];
+    return { lines: c.kind === "evm" ? await fetchEvm(w.chain, w.addr) : await FETCH[c.kind](w.addr), warn: null };
+  }
+
+  // What a wallet holds, ready to price and show. Zero lines are hidden, except a single-network wallet's own coin.
+  function holdings(w) {
+    const b = balances[w.id];
+    if (!b || !b.lines) return [];
+    return b.lines.filter(l => l.amount > 0 || (l.native && w.chain !== "evmall"));
+  }
+  const px = cg => prices[cg] ? prices[cg][currency] : null;
+  const chg = cg => prices[cg] ? (prices[cg][currency + "_24h_change"] ?? prices[cg].usd_24h_change) : null;
+  async function getPrices() {
+    const ids = [...new Set([...Object.values(CHAINS).map(c => c.cg), ...Object.values(TOKENS).map(t => t.cg)])].join(",");
+    const j = await fetchJSON(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,inr&include_24hr_change=true`);
+    prices = j;
+  }
+
+  // ---------- Formatting ----------
+  const fmtMoney = (v, cur = currency) => {
+    if (v == null || isNaN(v)) return "—";
+    const loc = cur === "inr" ? "en-IN" : "en-US";
+    const max = Math.abs(v) < 1 ? 4 : 2;
+    return new Intl.NumberFormat(loc, { style: "currency", currency: cur.toUpperCase(), maximumFractionDigits: max, minimumFractionDigits: Math.abs(v) < 1 && v !== 0 ? 2 : 2 }).format(v);
+  };
+  const fmtAmt = v => {
+    if (v == null) return "—";
+    const d = v === 0 ? 0 : v < 1 ? 6 : v < 1000 ? 4 : 2;
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: d }).format(v);
+  };
+  const short = a => a.length > 18 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
+
+  // ---------- Render ----------
+  const $ = id => document.getElementById(id);
+  const icons = {
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+    ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+    del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>',
+  };
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function render() {
+    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cur === currency)));
+
+    // Totals
+    let total = 0, prevTotal = 0, priced = 0;
+    const bySym = {};
+    for (const w of wallets) {
+      for (const h of holdings(w)) {
+        const p = px(h.cg), ch = chg(h.cg);
+        if (p == null) continue;
+        const v = h.amount * p;
+        total += v; priced++;
+        prevTotal += ch != null ? v / (1 + ch / 100) : v;
+        bySym[h.sym] = bySym[h.sym] || { v: 0, color: h.color };
+        bySym[h.sym].v += v;
+      }
+    }
+    $("total").textContent = priced ? fmtMoney(total) : (wallets.length ? "…" : fmtMoney(0));
+    const d = total - prevTotal, pct = prevTotal ? d / prevTotal * 100 : 0;
+    const del = $("delta");
+    if (priced && total > 0) {
+      del.className = "delta num " + (d >= 0 ? "up" : "down");
+      del.textContent = `${d >= 0 ? "▲" : "▼"} ${fmtMoney(Math.abs(d))} (${Math.abs(pct).toFixed(2)}%) 24h`;
+    } else { del.textContent = ""; }
+    $("count").textContent = `${wallets.length} wallet${wallets.length === 1 ? "" : "s"}`;
+    $("updated").textContent = lastUpdated ? "Updated " + lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+
+    // Allocation
+    const entries = Object.entries(bySym).sort((a, b) => b[1].v - a[1].v);
+    $("alloc").hidden = !(total > 0);
+    $("bar").innerHTML = entries.map(([s, o]) => `<span title="${s}" style="width:${(o.v / total * 100).toFixed(2)}%;background:${o.color}"></span>`).join("");
+    $("legend").innerHTML = entries.map(([s, o]) => `<span><i class="dot" style="background:${o.color}"></i><b>${s}</b> ${(o.v / total * 100).toFixed(1)}% · <span class="num">${fmtMoney(o.v)}</span></span>`).join("");
+
+    updateCharts(entries, total);
+
+    // Rows
+    if (!wallets.length) {
+      $("rows").innerHTML = `<div class="empty"><b>No wallets yet</b>Pick a network above, paste a public address and press Add wallet.</div>`;
+      return;
+    }
+    const walletValue = w => {
+      const hs = holdings(w);
+      if (!hs.length) return null;
+      let v = 0, prev = 0, any = false;
+      for (const h of hs) {
+        const p = px(h.cg), ch = chg(h.cg);
+        if (p == null) continue;
+        any = true; v += h.amount * p; prev += ch != null ? h.amount * p / (1 + ch / 100) : h.amount * p;
+      }
+      return any ? { v, ch: prev ? (v - prev) / prev * 100 : 0 } : null;
+    };
+    const sorted = wallets.slice().sort((a, b) => (walletValue(b)?.v ?? -1) - (walletValue(a)?.v ?? -1));
+    $("rows").innerHTML = sorted.map(w => {
+      const c = meta(w), b = balances[w.id] || { loading: true }, multi = w.chain === "evmall";
+      let balHTML, valHTML;
+      if (b.loading && !b.lines) { balHTML = '<span class="skeleton"></span>'; valHTML = '<span class="skeleton"></span>'; }
+      else if (b.error && !b.lines) { balHTML = `<span class="err">${esc(b.error)}</span>`; valHTML = "—"; }
+      else {
+        const hs = holdings(w);
+        balHTML = hs.map(h => {
+          const p = px(h.cg);
+          const symHTML = h.native ? h.sym : `<span class="stable" style="--c:${h.color}">${h.sym}</span>`;
+          return `<div class="bal">${fmtAmt(h.amount)} ${symHTML}${multi ? ` <span class="onnet">${esc(CHAINS[h.chain].name)}</span>` : ""}</div>` +
+                 (!multi && h.native && p != null ? `<div class="sub num">@ ${fmtMoney(p)}</div>` : "");
+        }).join("") + (multi && !hs.length ? '<div class="sub">No balance on any EVM network</div>' : "")
+          + (b.warn ? `<div class="warnline" title="${esc(b.warn)}">${esc(b.warn)}</div>` : "");
+        const wv = walletValue(w);
+        valHTML = `<div class="val">${fmtMoney(wv?.v)}</div>${wv ? `<div class="sub num delta ${wv.ch >= 0 ? "up" : "down"}">${wv.ch >= 0 ? "+" : ""}${wv.ch.toFixed(2)}%</div>` : ""}`;
+      }
+      const acts = confirmId === w.id
+        ? `<div class="confirm"><button type="button" data-act="cancel">Keep</button><button type="button" class="yes" data-act="remove" data-id="${w.id}">Remove</button></div>`
+        : `<div class="acts">
+            <a class="icon" href="${esc(c.explorer(w.addr))}" target="_blank" rel="noopener" title="Open in block explorer" aria-label="Open in block explorer">${icons.ext}</a>
+            <button type="button" class="icon danger" data-act="ask" data-id="${w.id}" title="Remove wallet" aria-label="Remove wallet">${icons.del}</button>
+          </div>`;
+      return `<div class="row">
+        <div class="c-who who">
+          <div class="coin" style="background:${c.color}">${c.sym}</div>
+          <div class="txt">
+            <div class="label">${esc(w.label || (multi ? "EVM wallet" : c.name + " wallet"))}${w.example ? '<span class="tag">Example</span>' : ""}</div>
+            <div class="addr"><span title="${esc(w.addr)}">${esc(short(w.addr))}</span>
+              <button type="button" class="icon" data-act="copy" data-addr="${esc(w.addr)}" title="Copy address" aria-label="Copy address" style="padding:2px">${icons.copy}</button>
+              <span class="chain">· ${c.name}</span></div>
+          </div>
+        </div>
+        <div class="c-bal r">${balHTML}</div>
+        <div class="c-val r">${valHTML}</div>
+        <div class="c-acts">${acts}</div>
+      </div>`;
+    }).join("");
+  }
+
+  // ---------- Refresh ----------
+  let priceError = null;
+  async function refreshAll() {
+    if (busy) return;
+    busy = true;
+    $("refresh").classList.add("spin");
+    wallets.forEach(w => { balances[w.id] = { ...(balances[w.id] || {}), loading: true }; });
+    render();
+    const priceJob = getPrices().then(() => { priceError = null; }).catch(e => { priceError = e.message; });
+    await Promise.all([priceJob, ...wallets.map(loadOne)]);
+    $("pricestatus").textContent = priceError ? "Prices: " + priceError : "";
+    lastUpdated = new Date();
+    recordHistory();
+    busy = false;
+    $("refresh").classList.remove("spin");
+    render();
+  }
+  async function loadOne(w) {
+    try {
+      const { lines, warn } = await fetchWallet(w);
+      balances[w.id] = { lines, warn, loading: false };
+    } catch (e) {
+      balances[w.id] = { ...(balances[w.id] || {}), loading: false, error: e.message };
+    }
+    render();
+  }
+
+  // ---------- Events ----------
+  const sel = $("f-chain");
+  const groups = {};
+  for (const [k, c] of Object.entries(CHAINS)) (groups[c.group] = groups[c.group] || []).push(`<option value="${k}">${c.name} (${c.sym})</option>`);
+  sel.innerHTML = `<option value="evmall">All EVM networks (scan one 0x address)</option>` +
+    Object.entries(groups).map(([g, opts]) => `<optgroup label="${g}">${opts.join("")}</optgroup>`).join("");
+
+  // Guess network from what's pasted
+  $("f-addr").addEventListener("input", e => {
+    const a = e.target.value.trim();
+    const cur = sel.value;
+    if (EVM_RE.test(a)) { if (cur !== "evmall" && CHAINS[cur].kind !== "evm") sel.value = "evmall"; }
+    else if (/^0x[a-fA-F0-9]{64}$/.test(a)) { if (cur !== "sui" && cur !== "apt") sel.value = "sui"; }
+    else {
+      const order = ["btc", "trx", "ltc", "doge", "xrp", "ton", "ada", "xlm", "atom", "near", "sol"];
+      const hit = order.find(k => CHAINS[k].re.test(a));
+      if (hit && !(cur !== "evmall" && CHAINS[cur].re.test(a) && CHAINS[cur].kind !== "evm")) sel.value = hit;
+    }
+    $("formmsg").hidden = true;
+  });
+
+  $("addform").addEventListener("submit", e => {
+    e.preventDefault();
+    const chain = sel.value, addr = $("f-addr").value.trim(), label = $("f-label").value.trim();
+    const msg = $("formmsg");
+    if (!addr) { msg.textContent = "Paste a public wallet address first."; msg.hidden = false; return; }
+    if (!meta({ chain }).re.test(addr)) { msg.textContent = `That doesn't look like a ${meta({ chain }).name} address. Check the network and try again.`; msg.hidden = false; return; }
+    if (wallets.some(w => w.chain === chain && w.addr.toLowerCase() === addr.toLowerCase())) { msg.textContent = "This wallet is already in your list."; msg.hidden = false; return; }
+    const w = { id: "w" + Date.now().toString(36), chain, addr, label };
+    wallets.push(w);
+    store.set("lw.wallets", wallets);
+    $("f-addr").value = ""; $("f-label").value = "";
+    balances[w.id] = { loading: true };
+    render();
+    loadOne(w);
+    toast("Wallet added");
+  });
+
+  $("rows").addEventListener("click", async e => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act;
+    if (act === "ask") { confirmId = b.dataset.id; render(); }
+    if (act === "cancel") { confirmId = null; render(); }
+    if (act === "remove") {
+      wallets = wallets.filter(w => w.id !== b.dataset.id);
+      delete balances[b.dataset.id];
+      confirmId = null; store.set("lw.wallets", wallets); render(); toast("Wallet removed");
+    }
+    if (act === "copy") {
+      try { await navigator.clipboard.writeText(b.dataset.addr); toast("Address copied"); }
+      catch { toast("Couldn't copy. Select the address by hand."); }
+    }
+  });
+
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    currency = b.dataset.cur; store.set("lw.cur", currency); render();
+  }));
+  $("refresh").addEventListener("click", refreshAll);
+
+  let tt;
+  function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => el.hidden = true, 1800); }
+
+
+  // ---------- Charts ----------
+  let history = store.get("lw.history", []);
+  let funnelMode = "wallet";
+  const charts = {};
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function portfolioTotals() {
+    let usd = 0, inr = 0, ok = false;
+    for (const w of wallets) for (const h of holdings(w)) {
+      const p = prices[h.cg]; if (!p) continue;
+      usd += h.amount * p.usd; inr += h.amount * p.inr; ok = true;
+    }
+    return ok ? { usd, inr } : null;
+  }
+  function recordHistory() {
+    const t = portfolioTotals();
+    if (!t || wallets.some(w => !balances[w.id]?.lines)) return; // skip partial snapshots
+    history.push({ t: Date.now(), usd: t.usd, inr: t.inr });
+    if (history.length > 2000) history = history.slice(-2000);
+    store.set("lw.history", history);
+  }
+  function wValue(w) {
+    let v = 0, any = false;
+    for (const h of holdings(w)) { const p = px(h.cg); if (p != null) { v += h.amount * p; any = true; } }
+    return any ? v : null;
+  }
+  const short$ = v => {
+    const loc = currency === "inr" ? "en-IN" : "en-US";
+    return new Intl.NumberFormat(loc, { style: "currency", currency: currency.toUpperCase(), notation: "compact", maximumFractionDigits: 1 }).format(v);
+  };
+
+  function baseOpts() {
+    const ink = css("--muted"), line = css("--line");
+    return {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: css("--ink"), titleColor: css("--bg"), bodyColor: css("--bg"), padding: 10, cornerRadius: 6 } },
+      scales: {
+        x: { ticks: { color: ink, font: { size: 11 } }, grid: { display: false }, border: { color: line } },
+        y: { ticks: { color: ink, font: { size: 11 } }, grid: { color: line }, border: { display: false } },
+      },
+    };
+  }
+  function makeCharts() {
+    if (!window.Chart) return false;
+    Object.values(charts).forEach(c => c.destroy());
+    Chart.defaults.font.family = css("--f-body");
+    charts.donut = new Chart($("ch-donut"), { type: "doughnut", data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: css("--surface"), borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "64%", plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.label}: ${fmtMoney(c.parsed)}` } } } } });
+    const net = baseOpts();
+    net.indexAxis = "y";
+    net.scales.x.ticks.callback = v => short$(v);
+    net.scales.x.grid = { color: css("--line") }; net.scales.y.grid = { display: false };
+    net.plugins.tooltip.callbacks = { label: c => " " + fmtMoney(c.parsed.x) };
+    charts.net = new Chart($("ch-net"), { type: "bar", data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderRadius: 4, barThickness: 18 }] }, options: net });
+    const hist = baseOpts();
+    hist.scales.y.ticks.callback = v => short$(v);
+    hist.scales.x.ticks.maxTicksLimit = 6; hist.scales.x.ticks.maxRotation = 0;
+    hist.plugins.tooltip.callbacks = { label: c => " " + fmtMoney(c.parsed.y) };
+    hist.interaction = { mode: "index", intersect: false };
+    charts.hist = new Chart($("ch-hist"), { type: "line", data: { labels: [], datasets: [{ data: [], borderColor: css("--accent"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.25, fill: true,
+      backgroundColor: ctx => { const { chart } = ctx; const a = chart.chartArea; if (!a) return "transparent"; const g = chart.ctx.createLinearGradient(0, a.top, 0, a.bottom); g.addColorStop(0, css("--accent") + "55"); g.addColorStop(1, css("--accent") + "00"); return g; } }] }, options: hist });
+    const chg = baseOpts();
+    chg.scales.y.ticks.callback = v => v + "%";
+    chg.plugins.tooltip.callbacks = { label: c => ` ${c.parsed.y >= 0 ? "+" : ""}${c.parsed.y.toFixed(2)}%` };
+    charts.chg = new Chart($("ch-chg"), { type: "bar", data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderRadius: 4, maxBarThickness: 44 }] }, options: chg });
+    return true;
+  }
+
+  function updateCharts(entries, total) {
+    renderFunnel(total);
+    if (!charts.donut && !makeCharts()) return;
+
+    // Donut
+    const d = charts.donut.data;
+    d.labels = entries.map(e => e[0]);
+    d.datasets[0].data = entries.map(e => e[1].v);
+    d.datasets[0].backgroundColor = entries.map(e => e[1].color);
+    d.datasets[0].borderColor = css("--surface");
+    charts.donut.update("none");
+    $("dleg").innerHTML = total > 0 ? entries.map(([s, o]) => `<div><i class="dot" style="background:${o.color}"></i><b>${s}</b><span class="pc">${(o.v / total * 100).toFixed(1)}%</span></div>`).join("")
+      : '<div class="pempty" style="display:block">No priced holdings yet.</div>';
+
+    // By network
+    const byNet = {};
+    for (const w of wallets) for (const h of holdings(w)) { const p = px(h.cg); if (p == null) continue; const c = CHAINS[h.chain]; byNet[c.name] = byNet[c.name] || { v: 0, color: c.color }; byNet[c.name].v += h.amount * p; }
+    const nets = Object.entries(byNet).sort((a, b) => b[1].v - a[1].v);
+    const n = charts.net.data;
+    n.labels = nets.map(e => e[0]); n.datasets[0].data = nets.map(e => e[1].v); n.datasets[0].backgroundColor = nets.map(e => e[1].color);
+    $("ch-net").parentElement.style.height = Math.max(200, nets.length * 30 + 40) + "px";
+    charts.net.update("none");
+
+    // History
+    const h = charts.hist.data;
+    h.labels = history.map(p => { const t = new Date(p.t); return t.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); });
+    h.datasets[0].data = history.map(p => p[currency]);
+    charts.hist.update("none");
+    $("histempty").hidden = history.length >= 2;
+    $("ch-hist").parentElement.hidden = history.length < 2;
+    if (history.length >= 2) {
+      const first = history[0][currency], last = history[history.length - 1][currency], pct = first ? (last - first) / first * 100 : 0;
+      $("histhint").textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% since ${new Date(history[0].t).toLocaleDateString([], { day: "numeric", month: "short" })}`;
+    }
+
+    // 24h change per held coin
+    const held = [...new Set(wallets.flatMap(w => holdings(w).map(x => x.sym + "|" + x.cg)))].map(k => k.split("|"));
+    const rows = held.map(([sym, cg]) => [sym, chg(cg)]).filter(r => r[1] != null).sort((a, b) => b[1] - a[1]);
+    const c = charts.chg.data;
+    c.labels = rows.map(r => r[0]); c.datasets[0].data = rows.map(r => r[1]);
+    c.datasets[0].backgroundColor = rows.map(r => r[1] >= 0 ? css("--up") : css("--down"));
+    charts.chg.update("none");
+  }
+
+  function renderFunnel(total) {
+    let items;
+    if (funnelMode === "wallet") {
+      items = wallets.map(w => ({ name: w.label || meta(w).name + " wallet", sub: meta(w).name, v: wValue(w), color: meta(w).color })).filter(i => i.v != null);
+    } else {
+      const m = {};
+      for (const w of wallets) for (const hh of holdings(w)) { const p = px(hh.cg); if (p == null) continue; m[hh.sym] = m[hh.sym] || { name: hh.sym, sub: "", v: 0, amt: 0, color: hh.color }; m[hh.sym].v += hh.amount * p; m[hh.sym].amt += hh.amount; }
+      items = Object.values(m).map(i => ({ ...i, sub: fmtAmt(i.amt) + " " + i.name }));
+    }
+    items.sort((a, b) => b.v - a.v);
+    if (!items.length || !(total > 0)) { $("funnel").innerHTML = '<div class="pempty">Waiting for balances…</div>'; return; }
+    const top = items.slice(0, 8);
+    if (items.length > 8) top.push({ name: `${items.length - 8} more`, sub: "", v: items.slice(8).reduce((s, i) => s + i.v, 0), color: css("--muted") });
+    const max = top[0].v || 1;
+    const width = v => Math.max(22, Math.sqrt(v / max) * 100); // sqrt keeps small slices visible
+    $("funnel").innerHTML = top.map((it, i) => {
+      const w = width(it.v), next = i < top.length - 1 ? width(top[i + 1].v) : w * 0.82;
+      const inset = Math.max(0, (w - Math.min(next, w)) / w * 50);
+      const pct = it.v / total * 100;
+      return `<div class="fstep">
+        <div class="flabel"><b>${esc(it.name)}</b><span>${fmtMoney(it.v)}${it.sub ? " · " + esc(it.sub) : ""}</span></div>
+        <div class="ftrack"><div class="fshape" style="width:${w.toFixed(1)}%;background:${it.color};clip-path:polygon(0 0,100% 0,${(100 - inset).toFixed(1)}% 100%,${inset.toFixed(1)}% 100%)">${pct.toFixed(1)}%</div></div>
+      </div>`;
+    }).join("");
+  }
+
+  document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+    funnelMode = b.dataset.fn;
+    document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    render();
+  }));
+  // Redraw chart colors when the light/dark theme changes
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (makeCharts()) render(); }); } catch {}
+
+  render();
+  refreshAll();
+  setInterval(() => { if (!document.hidden) refreshAll(); }, 120000);
+})();
+</script>
+</body>
+</html>
