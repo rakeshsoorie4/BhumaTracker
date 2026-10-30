@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"> 
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ledgerwatch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -281,7 +281,7 @@ footer { font-size: 12px; color: var(--muted); display: flex; justify-content: s
             re: /^(bc1[02-9ac-hj-np-z]{11,87}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$/i, explorer: a => "https://mempool.space/address/" + a },
     eth:  evm("Ethereum", "ETH", "ethereum", "#5b6bd6", "https://ethereum-rpc.publicnode.com", "https://etherscan.io/address/",
             { USDT: [["0xdAC17F958D2ee523a2206206994597C13D831ec7", 6]], USDC: [["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", 6]] }, { group: "Popular" }),
-    sol:  { name: "Solana", sym: "SOL", cg: "solana", color: "#1a9e8f", kind: "sol", group: "Popular", rpc: "https://solana-rpc.publicnode.com",
+    sol:  { name: "Solana", sym: "SOL", cg: "solana", color: "#1a9e8f", kind: "sol", group: "Popular", rpcs: ["https://api.mainnet-beta.solana.com", "https://solana.drpc.org", "https://solana-rpc.publicnode.com"],
             re: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/, explorer: a => "https://solscan.io/account/" + a,
             tokens: { USDT: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } },
     trx:  { name: "Tron", sym: "TRX", cg: "tron", color: "#d23a3a", kind: "trx", group: "Popular",
@@ -405,6 +405,18 @@ footer { font-size: 12px; color: var(--muted); display: flex; justify-content: s
     if (j.error) throw new Error(j.error.message || "RPC error");
     return j.result;
   }
+  // Try each server in turn; remember the one that worked so the next refresh starts there
+  const goodRpc = {};
+  async function rpcAny(key, urls, method, params) {
+    const start = goodRpc[key] || 0;
+    let lastErr;
+    for (let i = 0; i < urls.length; i++) {
+      const idx = (start + i) % urls.length;
+      try { const r = await rpc(urls[idx], method, params); goodRpc[key] = idx; return r; }
+      catch (e) { lastErr = e; }
+    }
+    throw lastErr;
+  }
   // Several EVM calls in one request; falls back to one-by-one if the node refuses batches
   async function rpcBatch(url, calls) {
     try {
@@ -457,10 +469,9 @@ footer { font-size: 12px; color: var(--muted); display: flex; justify-content: s
     },
     async sol(a) {
       const c = CHAINS.sol;
-      const [bal, ...toks] = await Promise.all([
-        rpc(c.rpc, "getBalance", [a]),
-        ...Object.values(c.tokens).map(mint => rpc(c.rpc, "getTokenAccountsByOwner", [a, { mint }, { encoding: "jsonParsed" }])),
-      ]);
+      const bal = await rpcAny("sol", c.rpcs, "getBalance", [a]);
+      const toks = await Promise.all(Object.values(c.tokens).map(mint =>
+        rpcAny("sol", c.rpcs, "getTokenAccountsByOwner", [a, { mint }, { encoding: "jsonParsed" }]).catch(() => ({ value: [] }))));
       const lines = [native("sol", bal.value / 1e9)];
       Object.keys(c.tokens).forEach((sym, i) => lines.push(token("sol", sym, (toks[i].value || []).reduce((s, x) => s + (x.account.data.parsed.info.tokenAmount.uiAmount || 0), 0))));
       return lines;
@@ -501,8 +512,13 @@ footer { font-size: 12px; color: var(--muted); display: flex; justify-content: s
       return lines;
     },
     async sui(a) {
-      const res = await rpc("https://fullnode.mainnet.sui.io", "suix_getAllBalances", [a]);
-      const find = t => (res.find(b => b.coinType === t) || {}).totalBalance || "0";
+      // Sui retired its JSON-RPC service in 2026; balances now come from Sui's GraphQL service
+      const q = 'query($a: SuiAddress!) { address(address: $a) { balances { nodes { coinType { repr } totalBalance } } } }';
+      const j = await post("https://graphql.mainnet.sui.io/graphql", { query: q, variables: { a } });
+      if (j.errors && j.errors.length) throw new Error("Sui: " + j.errors[0].message);
+      const nodes = (j.data && j.data.address && j.data.address.balances && j.data.address.balances.nodes) || [];
+      const norm = t => t.replace(/^0x0*/, "0x").toLowerCase();
+      const find = t => (nodes.find(b => b.coinType && norm(b.coinType.repr) === norm(t)) || {}).totalBalance || "0";
       return [native("sui", units(find("0x2::sui::SUI"), 9)),
               token("sui", "USDC", units(find("0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"), 6))];
     },
